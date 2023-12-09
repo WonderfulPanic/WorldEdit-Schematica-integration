@@ -40,12 +40,15 @@ import com.sk89q.worldedit.regions.Region;
 import com.sk89q.worldedit.util.Location;
 import com.sk89q.worldedit.world.registry.WorldData;
 import com.sk89q.worldedit.world.storage.NBTConversions;
+import com.sk89q.worldedit.extension.platform.Platform;
+import com.sk89q.worldedit.forge.ForgeWorldEdit;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -148,7 +151,20 @@ public class SchematicReader implements ClipboardReader {
                 }
             }
         }
-
+        if(schematic.containsKey("SchematicaMapping")){
+            Set<Entry<String,Tag>>mapping=requireTag(schematic,"SchematicaMapping",CompoundTag.class).getValue().entrySet();
+            short[]oldBlocks=blocks;
+            blocks=new short[blockId.length];
+            System.arraycopy(oldBlocks,0,blocks,0,blocks.length);
+            Platform platform=ForgeWorldEdit.inst.getPlatform();
+            for(Entry<String,Tag>e:mapping){
+                short id=((ShortTag)e.getValue()).getValue().shortValue();
+                short newId=(short)platform.resolveItem(e.getKey());
+                for(int i=0;i<oldBlocks.length;i++)
+                    if(oldBlocks[i]==id)
+                        blocks[i]=newId;
+            }
+        }
         // Need to pull out tile entities
         List<Tag> tileEntities = requireTag(schematic, "TileEntities", ListTag.class).getValue();
         Map<BlockVector, Map<String, Tag>> tileEntitiesMap = new HashMap<BlockVector, Map<String, Tag>>();
