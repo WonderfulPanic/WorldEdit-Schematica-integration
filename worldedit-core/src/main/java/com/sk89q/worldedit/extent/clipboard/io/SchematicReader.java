@@ -152,12 +152,12 @@ public class SchematicReader implements ClipboardReader {
             }
         }
         if(schematic.containsKey("SchematicaMapping")){
-            Set<Entry<String,Tag>>mapping=requireTag(schematic,"SchematicaMapping",CompoundTag.class).getValue().entrySet();
+            Set<Map.Entry<String,Tag>>mapping=requireTag(schematic,"SchematicaMapping",CompoundTag.class).getValue().entrySet();
             short[]oldBlocks=blocks;
             blocks=new short[blockId.length];
             System.arraycopy(oldBlocks,0,blocks,0,blocks.length);
             Platform platform=ForgeWorldEdit.inst.getPlatform();
-            for(Entry<String,Tag>e:mapping){
+            for(Map.Entry<String,Tag>e:mapping){
                 short id=((ShortTag)e.getValue()).getValue().shortValue();
                 short newId=(short)platform.resolveItem(e.getKey());
                 for(int i=0;i<oldBlocks.length;i++)
