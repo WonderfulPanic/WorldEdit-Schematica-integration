@@ -30,6 +30,7 @@ import com.sk89q.jnbt.StringTag;
 import com.sk89q.jnbt.Tag;
 import com.sk89q.worldedit.BlockVector;
 import com.sk89q.worldedit.Vector;
+import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.WorldEditException;
 import com.sk89q.worldedit.blocks.BaseBlock;
 import com.sk89q.worldedit.entity.BaseEntity;
@@ -38,13 +39,15 @@ import com.sk89q.worldedit.extent.clipboard.Clipboard;
 import com.sk89q.worldedit.regions.CuboidRegion;
 import com.sk89q.worldedit.regions.Region;
 import com.sk89q.worldedit.util.Location;
+import com.sk89q.worldedit.world.registry.ItemRegistry;
 import com.sk89q.worldedit.world.registry.WorldData;
 import com.sk89q.worldedit.world.storage.NBTConversions;
+import com.sk89q.worldedit.extension.platform.Capability;
 import com.sk89q.worldedit.extension.platform.Platform;
-import com.sk89q.worldedit.forge.ForgeWorldEdit;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -151,12 +154,13 @@ public class SchematicReader implements ClipboardReader {
                 }
             }
         }
-        if(schematic.containsKey("SchematicaMapping")){
+		boolean containsMapping=schematic.containsKey("SchematicaMapping");
+		if(containsMapping){
             Set<Map.Entry<String,Tag>>mapping=requireTag(schematic,"SchematicaMapping",CompoundTag.class).getValue().entrySet();
             short[]oldBlocks=blocks;
             blocks=new short[blockId.length];
             System.arraycopy(oldBlocks,0,blocks,0,blocks.length);
-            Platform platform=ForgeWorldEdit.inst.getPlatform();
+			Platform platform=WorldEdit.getInstance().getPlatformManager().queryCapability(Capability.WORLD_EDITING);
             for(Map.Entry<String,Tag>e:mapping){
                 short id=((ShortTag)e.getValue()).getValue().shortValue();
                 short newId=(short)platform.resolveItem(e.getKey());
@@ -169,37 +173,38 @@ public class SchematicReader implements ClipboardReader {
         List<Tag> tileEntities = requireTag(schematic, "TileEntities", ListTag.class).getValue();
         Map<BlockVector, Map<String, Tag>> tileEntitiesMap = new HashMap<BlockVector, Map<String, Tag>>();
 
-        for (Tag tag : tileEntities) {
-            if (!(tag instanceof CompoundTag)) continue;
-            CompoundTag t = (CompoundTag) tag;
-
-            int x = 0;
-            int y = 0;
-            int z = 0;
-
-            Map<String, Tag> values = new HashMap<String, Tag>();
-
-            for (Map.Entry<String, Tag> entry : t.getValue().entrySet()) {
-                if (entry.getKey().equals("x")) {
-                    if (entry.getValue() instanceof IntTag) {
-                        x = ((IntTag) entry.getValue()).getValue();
-                    }
-                } else if (entry.getKey().equals("y")) {
-                    if (entry.getValue() instanceof IntTag) {
-                        y = ((IntTag) entry.getValue()).getValue();
-                    }
-                } else if (entry.getKey().equals("z")) {
-                    if (entry.getValue() instanceof IntTag) {
-                        z = ((IntTag) entry.getValue()).getValue();
-                    }
-                }
-
-                values.put(entry.getKey(), entry.getValue());
-            }
-
-            BlockVector vec = new BlockVector(x, y, z);
-            tileEntitiesMap.put(vec, values);
-        }
+		ItemRegistry itemRegistry=data.getItemRegistry();
+		for(Tag tag:tileEntities){
+			if(!(tag instanceof CompoundTag))
+				continue;
+			int x=0,y=0,z=0;
+			Map<String,Tag>values=new HashMap<String,Tag>();
+			for(Map.Entry<String,Tag>entry:((CompoundTag)tag).getValue().entrySet()){
+				String key=entry.getKey();
+				Tag value=entry.getValue();
+				if(value instanceof IntTag)
+					switch(key){
+						case "x":
+							x=((IntTag)value).getValue().intValue();
+						break;
+						case "y":
+							y=((IntTag)value).getValue().intValue();
+						break;
+						case "z":
+							z=((IntTag)value).getValue().intValue();
+						break;
+					}
+				else if(containsMapping){
+					if(value instanceof CompoundTag)
+						value=checkItemsInCompound((CompoundTag)value,itemRegistry);
+					else if(value instanceof ListTag)
+						value=checkItemsInList((ListTag)value,itemRegistry);
+				}
+				values.put(key,value);
+			}
+			BlockVector vec=new BlockVector(x,y,z);
+			tileEntitiesMap.put(vec,values);
+		}
 
         BlockArrayClipboard clipboard = new BlockArrayClipboard(region);
         clipboard.setOrigin(origin);
@@ -290,5 +295,38 @@ public class SchematicReader implements ClipboardReader {
 
         return expected.cast(test);
     }
-
+	
+	private CompoundTag checkItemsInCompound(CompoundTag compound,ItemRegistry reg){
+		HashMap<String,Tag>map=new HashMap<String,Tag>(compound.getValue());
+		map.replaceAll((name,t)->{
+			if(t instanceof CompoundTag)
+				return checkItemsInCompound((CompoundTag)t,reg);
+			else if(t instanceof ListTag)
+				return checkItemsInList((ListTag)t,reg);
+			else
+				return t;
+		});
+		if(map.containsKey("ItemId")&&map.containsKey("id"))
+			map.put("id",new ShortTag((short)(reg.createFromId(compound.getString("ItemId")).getType())));
+		return new CompoundTag(map);
+	}
+	private ListTag checkItemsInList(ListTag list,ItemRegistry reg){
+		Class<?extends Tag>type=list.getType();
+		List<Tag>tagList=list.getValue();
+		int size=tagList.size();
+		if(type==CompoundTag.class){
+			CompoundTag[]arr=tagList.toArray(new CompoundTag[size]);
+			ArrayList<CompoundTag>ret=new ArrayList<CompoundTag>(size);
+			for(int i=0;i<size;i++)
+				ret.add(i,checkItemsInCompound(arr[i],reg));
+			return new ListTag(type,ret);
+		}else if(type==ListTag.class){
+			ListTag[]arr=tagList.toArray(new ListTag[size]);
+			ArrayList<ListTag>ret=new ArrayList<ListTag>(size);
+			for(int i=0;i<size;i++)
+				ret.add(i,checkItemsInList(arr[i],reg));
+			return new ListTag(type,ret);
+		}else
+			return list;
+	}
 }
